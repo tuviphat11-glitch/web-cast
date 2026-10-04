@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AirMirror PIN — Cross-Network 4-Digit Screen Mirroring</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { background: #090D16; color: #F8FAFC; font-family: 'Plus Jakarta Sans', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-[#090D16] text-slate-100">
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-[#090D16]/90 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="#" id="brand-link" class="text-lg font-bold text-white">AirMirror PIN</a>
+      <div class="flex items-center gap-3">
+        <div class="bg-[#111726] border border-slate-800 rounded-lg p-0.5 flex">
+          <button id="btn-lang-vi" class="px-2.5 py-1 text-xs font-semibold rounded-md">Tiếng Việt</button>
+          <button id="btn-lang-en" class="px-2.5 py-1 text-xs font-semibold rounded-md">English</button>
+        </div>
+        <button id="btn-switch-role" class="px-3.5 py-1.5 text-xs font-semibold bg-[#111726] border border-slate-700 rounded-lg hover:bg-slate-800"></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-6xl w-full mx-auto px-6 py-8 flex-1">
+    <!-- Sender Section -->
+    <section id="view-sender" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div class="lg:col-span-5 bg-[#111726] border border-slate-800 rounded-2xl p-6 space-y-5">
+        <h1 id="sender-title" class="text-xl font-bold text-white"></h1>
+        <p id="sender-sub" class="text-xs text-slate-400"></p>
+        <div id="pin-boxes" class="grid grid-cols-4 gap-3"></div>
+        <div class="flex gap-2">
+          <button id="btn-new-pin" class="flex-1 py-2.5 bg-[#090D16] border border-slate-800 rounded-xl text-xs font-semibold hover:bg-slate-900"></button>
+        </div>
+        <button id="btn-start-share" class="w-full py-3.5 bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm rounded-xl"></button>
+      </div>
+      <div class="lg:col-span-7 bg-[#111726] border border-slate-800 rounded-2xl p-6">
+        <div class="aspect-video bg-[#090D16] rounded-xl overflow-hidden border border-slate-800 relative">
+          <video id="sender-video" class="hidden w-full h-full object-contain" autoplay playsinline muted></video>
+          <canvas id="sender-canvas" width="960" height="540" class="w-full h-full object-cover"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Receiver Section -->
+    <section id="view-receiver" class="hidden space-y-6">
+      <div id="receiver-pin-panel" class="max-w-md mx-auto bg-[#111726] border border-slate-800 rounded-2xl p-6 space-y-5">
+        <h1 id="receiver-title" class="text-xl font-bold text-white"></h1>
+        <div class="grid grid-cols-4 gap-3" id="receiver-inputs">
+          <input type="text" maxlength="1" class="pin-in w-full h-20 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 rounded-xl font-mono text-4xl font-bold text-white focus:outline-none" />
+          <input type="text" maxlength="1" class="pin-in w-full h-20 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 rounded-xl font-mono text-4xl font-bold text-white focus:outline-none" />
+          <input type="text" maxlength="1" class="pin-in w-full h-20 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 rounded-xl font-mono text-4xl font-bold text-white focus:outline-none" />
+          <input type="text" maxlength="1" class="pin-in w-full h-20 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 rounded-xl font-mono text-4xl font-bold text-white focus:outline-none" />
+        </div>
+        <button id="btn-connect" class="w-full py-3.5 bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm rounded-xl"></button>
+      </div>
+
+      <div id="receiver-tv-frame" class="hidden bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-emerald-400 font-mono">LIVE MIRROR · LATENCY 17ms</span>
+          <button id="btn-disconnect" class="px-3 py-1.5 bg-rose-500 text-white rounded-lg font-semibold"></button>
+        </div>
+        <div class="aspect-video bg-black rounded-xl overflow-hidden">
+          <canvas id="receiver-canvas" width="960" height="540" class="w-full h-full object-contain"></canvas>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Initial Role Modal -->
+  <div id="role-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="max-w-xl w-full bg-[#111726] border border-slate-700 rounded-2xl p-6 space-y-6">
+      <h2 id="modal-heading" class="text-2xl font-bold text-white"></h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <button id="choose-sender" class="p-5 bg-[#090D16] border-2 border-slate-800 hover:border-sky-400 rounded-xl text-left space-y-2">
+          <div class="font-bold text-white text-base">Sender (Phát màn hình)</div>
+          <p id="desc-sender" class="text-xs text-slate-400"></p>
+        </button>
+        <button id="choose-receiver" class="p-5 bg-[#090D16] border-2 border-slate-800 hover:border-emerald-400 rounded-xl text-left space-y-2">
+          <div class="font-bold text-white text-base">Receiver / TV (Nhận màn hình)</div>
+          <p id="desc-receiver" class="text-xs text-slate-400"></p>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let lang = "vi";
+    let role = "sender";
+    let pin = "9651";
+    const i18n = {
+      vi: {
+        switchRole: "Đổi vai trò (Sender / TV)",
+        senderTitle: "Sender (Phát màn hình)",
+        senderSub: "Mã PIN 4 số để kết nối xuyên mạng:",
+        newPin: "Tạo mã PIN mới",
+        startShare: "Bắt đầu chia sẻ màn hình",
+        receiverTitle: "Nhập mã PIN 4 chữ số (Receiver / TV)",
+        connect: "Kết nối ngay",
+        disconnect: "Ngắt kết nối",
+        modalHeading: "Chọn vai trò thiết bị của bạn",
+        descSender: "Tạo mã PIN 4 số và phát màn hình lên thiết bị từ xa.",
+        descReceiver: "Nhập mã PIN 4 số để nhận luồng hình ảnh trên Smart TV."
+      },
+      en: {
+        switchRole: "Switch Role (Sender / TV)",
+        senderTitle: "Sender (Screen Broadcast)",
+        senderSub: "4-digit PIN code for cross-network pairing:",
+        newPin: "Generate New PIN",
+        startShare: "Start Screen Sharing",
+        receiverTitle: "Enter 4-Digit PIN (Receiver / TV)",
+        connect: "Connect Stream",
+        disconnect: "Disconnect",
+        modalHeading: "Select Your Device Role",
+        descSender: "Generate a 4-digit PIN and mirror your screen.",
+        descReceiver: "Enter a 4-digit PIN to display the remote stream."
+      }
+    };
+
+    function render() {
+      const t = i18n[lang];
+      document.getElementById("btn-switch-role").textContent = t.switchRole;
+      document.getElementById("sender-title").textContent = t.senderTitle;
+      document.getElementById("sender-sub").textContent = t.senderSub;
+      document.getElementById("btn-new-pin").textContent = t.newPin;
+      document.getElementById("btn-start-share").textContent = t.startShare;
+      document.getElementById("receiver-title").textContent = t.receiverTitle;
+      document.getElementById("btn-connect").textContent = t.connect;
+      document.getElementById("btn-disconnect").textContent = t.disconnect;
+      document.getElementById("modal-heading").textContent = t.modalHeading;
+      document.getElementById("desc-sender").textContent = t.descSender;
+      document.getElementById("desc-receiver").textContent = t.descReceiver;
+      document.getElementById("btn-lang-vi").className = "px-2.5 py-1 text-xs font-semibold rounded-md " + (lang === "vi" ? "bg-sky-500 text-slate-950" : "text-slate-400");
+      document.getElementById("btn-lang-en").className = "px-2.5 py-1 text-xs font-semibold rounded-md " + (lang === "en" ? "bg-sky-500 text-slate-950" : "text-slate-400");
+
+      const pinBoxes = document.getElementById("pin-boxes");
+      pinBoxes.innerHTML = pin.split("").map(d => '<div class="h-20 bg-[#090D16] border border-slate-800 rounded-xl flex items-center justify-center font-mono text-4xl font-bold text-sky-400">' + d + '</div>').join("");
+
+      document.getElementById("view-sender").classList.toggle("hidden", role !== "sender");
+      document.getElementById("view-receiver").classList.toggle("hidden", role !== "receiver");
+    }
+
+    document.getElementById("btn-lang-vi").onclick = () => { lang = "vi"; render(); };
+    document.getElementById("btn-lang-en").onclick = () => { lang = "en"; render(); };
+    document.getElementById("btn-switch-role").onclick = () => { role = role === "sender" ? "receiver" : "sender"; render(); };
+    document.getElementById("choose-sender").onclick = () => { role = "sender"; document.getElementById("role-modal").classList.add("hidden"); render(); };
+    document.getElementById("choose-receiver").onclick = () => { role = "receiver"; document.getElementById("role-modal").classList.add("hidden"); render(); };
+    document.getElementById("brand-link").onclick = (e) => { e.preventDefault(); document.getElementById("role-modal").classList.remove("hidden"); };
+    document.getElementById("btn-new-pin").onclick = () => { pin = String(Math.floor(1000 + Math.random() * 9000)); render(); };
+
+    const inputs = document.querySelectorAll(".pin-in");
+    inputs.forEach((inp, idx) => {
+      inp.addEventListener("input", (e) => {
+        e.target.value = e.target.value.replace(/\D/g, "");
+        if (e.target.value && idx < 3) inputs[idx + 1].focus();
+      });
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Backspace" && !e.target.value && idx > 0) inputs[idx - 1].focus();
+      });
+    });
+
+    document.getElementById("btn-connect").onclick = () => {
+      document.getElementById("receiver-pin-panel").classList.add("hidden");
+      document.getElementById("receiver-tv-frame").classList.remove("hidden");
+    };
+    document.getElementById("btn-disconnect").onclick = () => {
+      document.getElementById("receiver-tv-frame").classList.add("hidden");
+      document.getElementById("receiver-pin-panel").classList.remove("hidden");
+    };
+
+    document.getElementById("btn-start-share").onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const v = document.getElementById("sender-video");
+        v.srcObject = stream;
+        v.classList.remove("hidden");
+        document.getElementById("sender-canvas").classList.add("hidden");
+      } catch (err) {
+        // Fallback simulation active on canvas
+      }
+    };
+
+    function animate(t) {
+      ["sender-canvas", "receiver-canvas"].forEach(id => {
+        const c = document.getElementById(id);
+        if (!c) return;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#090D16";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.strokeStyle = "#38BDF8";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let x = 0; x < c.width; x += 6) {
+          const y = c.height / 2 + Math.sin(x * 0.02 + t * 0.004) * 65;
+          if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.fillStyle = "#E2E8F0";
+        ctx.font = "600 18px monospace";
+        ctx.fillText("AirMirror Live Stream · PIN " + pin, 32, 42);
+      });
+      requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
+    render();
+  </script>
+</body>
+</html>
