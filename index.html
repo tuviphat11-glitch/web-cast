@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AirMirror P2P — WebRTC Screen Mirroring via 4-Digit PIN</title>
+  <!-- PeerJS CDN (WebRTC P2P qua Internet không cần chung Wi-Fi) -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      background-color: #090D16;
+      color: #F8FAFC;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      overflow-x: hidden;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    @keyframes pulseRing {
+      0%, 100% { transform: scale(0.95); opacity: 0.7; }
+      50% { transform: scale(1.06); opacity: 0.3; }
+    }
+    .animate-pulse-ring {
+      animation: pulseRing 2.4s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-[#090D16] text-slate-100 selection:bg-sky-500/30">
+
+  <!-- Ambient Top Glow -->
+  <div class="pointer-events-none fixed inset-x-0 top-0 h-72 bg-gradient-to-b from-sky-500/[0.07] via-indigo-950/[0.03] to-transparent z-0"></div>
+
+  <!-- ====================================================================
+       HEADER (Bilingual Switcher + Role Toggle)
+       ==================================================================== -->
+  <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-[#090D16]/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
+      <a href="#" id="brand-logo" class="text-lg font-bold tracking-tight text-white hover:text-sky-400 transition-colors whitespace-nowrap">
+        AirMirror P2P
+      </a>
+
+      <div class="flex items-center gap-2.5">
+        <!-- Language Toggle (VI / EN) -->
+        <div class="flex items-center bg-[#111726] border border-slate-800 rounded-lg p-0.5">
+          <button id="btn-lang-vi" type="button" class="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer">
+            Tiếng Việt
+          </button>
+          <button id="btn-lang-en" type="button" class="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer">
+            English
+          </button>
+        </div>
+
+        <!-- Switch Role Button -->
+        <button id="btn-switch-role" type="button" class="px-3.5 py-1.5 text-xs font-semibold text-slate-200 bg-[#111726] hover:bg-slate-800 border border-slate-700/80 rounded-lg transition-colors cursor-pointer whitespace-nowrap">
+          Đổi vai trò
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ====================================================================
+       MAIN WORKSPACE
+       ==================================================================== -->
+  <main class="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8">
+
+    <!-- ================= SENDER VIEW (Phát màn hình) ================= -->
+    <section id="view-sender" class="space-y-7">
+      <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800/80 pb-5">
+        <div>
+          <div class="flex items-center gap-2 text-xs text-sky-400 font-medium mb-1.5">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+            <span id="txt-relay-badge">PeerJS Cloud Signaling + Google STUN (Không cần chung Wi-Fi)</span>
+          </div>
+          <h1 id="txt-sender-title" class="text-2xl sm:text-3xl font-bold text-white"></h1>
+          <p id="txt-sender-sub" class="text-sm text-slate-400 mt-1"></p>
+        </div>
+
+        <div class="flex items-center gap-3 bg-[#111726] border border-slate-800 px-4 py-2.5 rounded-xl self-start md:self-auto">
+          <span id="sender-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+          <div class="text-xs">
+            <div id="txt-sender-status" class="font-semibold text-white">Đang đăng ký PeerJS...</div>
+            <div id="txt-sender-meta" class="text-slate-400 font-mono">PIN: ----</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
+        <!-- Left Column: PIN + Resolution Selector + Share Buttons -->
+        <div class="lg:col-span-5 bg-[#111726] border border-slate-800/90 rounded-2xl p-6 space-y-5">
+          <div>
+            <h2 id="txt-pin-label" class="text-base font-semibold text-white"></h2>
+            <p id="txt-pin-desc" class="text-xs text-slate-400 mt-0.5"></p>
+          </div>
+
+          <!-- 4-Digit PIN Boxes -->
+          <div id="sender-pin-boxes" class="grid grid-cols-4 gap-3 py-1"></div>
+
+          <div class="flex items-center gap-2.5">
+            <button id="btn-copy-pin" type="button" class="flex-1 py-2.5 px-4 bg-[#090D16] hover:bg-slate-900 text-slate-200 border border-slate-800 rounded-xl text-xs font-semibold transition-colors cursor-pointer"></button>
+            <button id="btn-new-pin" type="button" class="py-2.5 px-4 bg-[#090D16] hover:bg-slate-900 text-slate-300 border border-slate-800 rounded-xl text-xs font-semibold transition-colors cursor-pointer"></button>
+          </div>
+
+          <hr class="border-slate-800/80" />
+
+          <!-- Resolution & Adaptive Network Optimization Menu -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <label for="select-resolution" id="txt-res-label" class="font-semibold text-slate-200"></label>
+              <span id="txt-active-constraint" class="font-mono text-[11px] text-sky-400">Adaptive</span>
+            </div>
+            <select
+              id="select-resolution"
+              class="w-full px-3.5 py-2.5 bg-[#090D16] hover:bg-slate-900 text-slate-100 border border-slate-800 focus:border-sky-400 focus:outline-none rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <option value="auto" id="opt-res-auto">Tự động (Adaptive: tối ưu theo tốc độ mạng)</option>
+              <option value="1080p60" id="opt-res-1080">1080p60 (Độ phân giải cao · 1920×1080 @ 60fps)</option>
+              <option value="720p" id="opt-res-720">720p (Độ phân giải trung bình · 1280×720 @ 30fps)</option>
+              <option value="480p" id="opt-res-480">480p (Tiết kiệm băng thông · 854×480 @ 24fps)</option>
+            </select>
+            <p id="txt-res-hint" class="text-[11px] text-slate-400 leading-relaxed"></p>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="space-y-2.5 pt-1">
+            <button id="btn-start-share" type="button" class="w-full py-3.5 px-5 bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm rounded-xl transition-colors cursor-pointer shadow-sm"></button>
+            <button id="btn-stop-share" type="button" class="hidden w-full py-3 px-5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-semibold text-xs rounded-xl transition-colors cursor-pointer"></button>
+          </div>
+        </div>
+
+        <!-- Right Column: Local Outgoing Preview -->
+        <div class="lg:col-span-7 bg-[#111726] border border-slate-800/90 rounded-2xl p-6 space-y-4">
+          <div class="flex items-center justify-between text-xs">
+            <span id="txt-preview-title" class="font-semibold text-sm text-white"></span>
+            <span id="txt-peer-count" class="font-mono text-sky-400">TV: 0</span>
+          </div>
+
+          <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-[#090D16] border border-slate-800 flex items-center justify-center">
+            <video id="sender-video" class="hidden w-full h-full object-contain bg-black" autoplay playsinline muted></video>
+            <div id="sender-empty-state" class="text-center p-8 max-w-sm space-y-2">
+              <div class="text-sm font-semibold text-slate-200" id="txt-empty-preview">Chưa bắt đầu chia sẻ màn hình</div>
+              <p class="text-xs text-slate-400" id="txt-empty-sub">Chọn độ phân giải mong muốn và nhấn nút Chia sẻ màn hình để truyền hình ảnh P2P.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RECEIVER VIEW (Nhận màn hình / TV) ================= -->
+    <section id="view-receiver" class="hidden space-y-7">
+      <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800/80 pb-5">
+        <div>
+          <h1 id="txt-receiver-title" class="text-2xl sm:text-3xl font-bold text-white"></h1>
+          <p id="txt-receiver-sub" class="text-sm text-slate-400 mt-1"></p>
+        </div>
+      </div>
+
+      <!-- PIN Input Card -->
+      <div id="receiver-pin-card" class="max-w-lg mx-auto bg-[#111726] border border-slate-800/90 rounded-2xl p-6 sm:p-8 space-y-6">
+        <div class="space-y-1">
+          <h2 id="txt-enter-pin-title" class="text-lg font-bold text-white"></h2>
+          <p id="txt-enter-pin-sub" class="text-xs text-slate-400"></p>
+        </div>
+
+        <!-- 4 Digit Boxes with Auto-Focus -->
+        <div class="grid grid-cols-4 gap-3 py-2">
+          <input type="text" inputmode="numeric" maxlength="1" placeholder="·" class="pin-input w-full h-20 sm:h-24 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 focus:outline-none rounded-xl font-mono text-4xl font-bold text-white" />
+          <input type="text" inputmode="numeric" maxlength="1" placeholder="·" class="pin-input w-full h-20 sm:h-24 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 focus:outline-none rounded-xl font-mono text-4xl font-bold text-white" />
+          <input type="text" inputmode="numeric" maxlength="1" placeholder="·" class="pin-input w-full h-20 sm:h-24 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 focus:outline-none rounded-xl font-mono text-4xl font-bold text-white" />
+          <input type="text" inputmode="numeric" maxlength="1" placeholder="·" class="pin-input w-full h-20 sm:h-24 text-center bg-[#090D16] border-2 border-slate-800 focus:border-sky-400 focus:outline-none rounded-xl font-mono text-4xl font-bold text-white" />
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button id="btn-connect-pin" type="button" class="flex-1 py-3.5 px-5 bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm rounded-xl transition-colors cursor-pointer"></button>
+          <button id="btn-clear-pin" type="button" class="py-3.5 px-4 bg-[#090D16] hover:bg-slate-900 text-slate-300 border border-slate-800 text-xs font-semibold rounded-xl transition-colors cursor-pointer"></button>
+        </div>
+      </div>
+
+      <!-- Smart TV Connected Display Frame -->
+      <div id="receiver-tv-container" class="hidden">
+        <div class="rounded-2xl p-3 sm:p-4 bg-gradient-to-b from-slate-800/90 via-slate-900 to-slate-950 border border-slate-700/80 shadow-2xl space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+            <div class="flex items-center gap-3">
+              <span class="flex items-center gap-1.5 font-semibold text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span>LIVE WEBRTC P2P</span>
+              </span>
+              <span>·</span>
+              <span id="tv-connected-pin" class="font-mono text-slate-200">PIN ----</span>
+              <span>·</span>
+              <span id="tv-latency" class="font-mono text-sky-400">RTT: 18 ms</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button id="btn-tv-fullscreen" type="button" class="px-3 py-1.5 bg-[#090D16] hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-lg font-medium cursor-pointer">
+                Fullscreen
+              </button>
+              <button id="btn-tv-disconnect" type="button" class="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold cursor-pointer"></button>
+            </div>
+          </div>
+
+          <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800 flex items-center justify-center">
+            <video id="receiver-video" class="w-full h-full object-contain bg-black" autoplay playsinline controls></video>
+            <div id="receiver-waiting-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/85 p-6 text-center">
+              <div class="w-10 h-10 rounded-full border-2 border-sky-400 border-t-transparent animate-spin mb-3"></div>
+              <p id="txt-waiting-stream" class="text-sm font-semibold text-white"></p>
+            </div>
+          </div>
+        </div>
+        <div class="mx-auto w-52 h-3 bg-slate-800 rounded-b-xl border-x border-b border-slate-700"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ====================================================================
+       INITIAL ROLE PROMPT MODAL
+       ==================================================================== -->
+  <div id="role-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+    <div class="w-full max-w-2xl bg-[#111726] border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+      <div class="flex items-center justify-between gap-2">
+        <span id="txt-modal-kicker" class="text-xs font-medium text-sky-400"></span>
+        <div class="flex items-center bg-[#090D16] border border-slate-800 rounded-lg p-0.5">
+          <button id="modal-lang-vi" type="button" class="px-2.5 py-1 text-xs font-semibold rounded-md cursor-pointer">Tiếng Việt</button>
+          <button id="modal-lang-en" type="button" class="px-2.5 py-1 text-xs font-semibold rounded-md cursor-pointer">English</button>
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <h2 id="txt-modal-title" class="text-2xl sm:text-3xl font-bold text-white"></h2>
+        <p id="txt-modal-sub" class="text-sm text-slate-400"></p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <button id="btn-choose-sender" type="button" class="text-left bg-[#090D16] hover:bg-slate-900 border-2 border-slate-800 hover:border-sky-400 rounded-2xl p-5 transition-all flex flex-col justify-between gap-4 cursor-pointer">
+          <div class="space-y-2">
+            <span class="text-xs font-mono text-sky-400">SOURCE DEVICE</span>
+            <h3 class="text-lg font-bold text-white">Sender (Phát màn hình)</h3>
+            <p id="txt-role-sender-desc" class="text-xs text-slate-400 leading-relaxed"></p>
+          </div>
+          <div id="txt-role-sender-cta" class="w-full py-2.5 px-4 bg-sky-400 text-slate-950 font-semibold text-xs rounded-xl text-center"></div>
+        </button>
+
+        <button id="btn-choose-receiver" type="button" class="text-left bg-[#090D16] hover:bg-slate-900 border-2 border-slate-800 hover:border-emerald-400 rounded-2xl p-5 transition-all flex flex-col justify-between gap-4 cursor-pointer">
+          <div class="space-y-2">
+            <span class="text-xs font-mono text-emerald-400">TARGET SMART TV</span>
+            <h3 class="text-lg font-bold text-white">Receiver / TV (Nhận màn hình)</h3>
+            <p id="txt-role-receiver-desc" class="text-xs text-slate-400 leading-relaxed"></p>
+          </div>
+          <div id="txt-role-receiver-cta" class="w-full py-2.5 px-4 bg-emerald-400 text-slate-950 font-semibold text-xs rounded-xl text-center"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       TOAST CONTAINER
+       ==================================================================== -->
+  <div id="toast-container" class="fixed bottom-16 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- ====================================================================
+       FOOTER (Displayed on all screens with "Created by Từ Vĩ Phát")
+       ==================================================================== -->
+  <footer class="relative z-40 border-t border-slate-800/80 bg-[#090D16]/95 backdrop-blur-md py-4 px-4 sm:px-8 text-xs text-slate-400">
+    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="font-semibold text-slate-200">AirMirror P2P</span>
+        <span class="text-slate-600">·</span>
+        <span>WebRTC Screen Mirroring</span>
+      </div>
+
+      <div class="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#111726] border border-slate-800/90 shadow-sm">
+        <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+        <span class="font-medium tracking-wide text-slate-200">
+          Created by <span class="text-sky-400 font-semibold">Từ Vĩ Phát</span>
+        </span>
+      </div>
+
+      <div>
+        <button id="footer-role-btn" type="button" class="hover:text-sky-400 transition-colors cursor-pointer">
+          Chọn lại vai trò
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ====================================================================
+       APPLICATION JAVASCRIPT (PeerJS + Adaptive Resolution + Bilingual)
+       ==================================================================== -->
+  <script>
+    const PEER_PREFIX = "airmirror-pin-v2-";
+    const ICE_CONFIG = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" }
+      ]
+    };
+
+    let currentLang = "vi";
+    let currentRole = "sender";
+    let senderPin = String(Math.floor(1000 + Math.random() * 9000));
+    let selectedQuality = "auto";
+
+    let senderPeer = null;
+    let receiverPeer = null;
+    let localDisplayStream = null;
+    let connectedDataPeers = [];
+    let activeMediaCalls = [];
+
+    const I18N = {
+      vi: {
+        switchToReceiver: "Chuyển sang Receiver / TV",
+        switchToSender: "Chuyển sang Sender (Phát)",
+        modalKicker: "Truyền tải màn hình WebRTC P2P qua PeerJS · Xuyên mạng Internet",
+        modalTitle: "Chọn vai trò thiết bị của bạn",
+        modalSub: "Kết nối và chiếu màn hình trực tiếp giữa 2 thiết bị bất kỳ bằng mã PIN 4 số mà không cần chung mạng Wi-Fi.",
+        roleSenderDesc: "Tạo mã PIN 4 số, tùy chỉnh độ phân giải và chia sẻ màn hình thật qua kết nối P2P.",
+        roleSenderCta: "Chọn làm Thiết bị Phát",
+        roleReceiverDesc: "Nhập mã PIN 4 số từ thiết bị phát để xem luồng màn hình trực tiếp trên giao diện Smart TV.",
+        roleReceiverCta: "Chọn làm Màn hình Nhận",
+        senderTitle: "Trạm Phát Màn Hình WebRTC (Sender)",
+        senderSub: "Chọn độ phân giải tối ưu và bấm Chia sẻ màn hình để truyền luồng video trực tiếp sang Receiver.",
+        pinLabel: "Mã PIN 4 số của bạn",
+        pinDesc: "Nhập 4 chữ số này trên thiết bị Receiver / TV để kết nối ngay.",
+        copyPin: "Sao chép PIN",
+        newPin: "Đổi mã PIN",
+        resLabel: "Độ phân giải & Tối ưu mạng:",
+        resAuto: "Tự động (Adaptive: tự động tối ưu theo tốc độ mạng)",
+        res1080: "1080p60 (Độ phân giải cao · 1920×1080 @ 60fps)",
+        res720: "720p (Độ phân giải trung bình · 1280×720 @ 30fps)",
+        res480: "480p (Tiết kiệm băng thông · 854×480 @ 24fps)",
+        resHint: "Thông số width, height và frameRate sẽ được áp dụng trực tiếp vào navigator.mediaDevices.getDisplayMedia().",
+        startShare: "Chia sẻ màn hình ngay (getDisplayMedia)",
+        stopShare: "Dừng phát màn hình",
+        previewTitle: "Luồng video đang phát (Local Monitor)",
+        emptyPreview: "Chưa bắt đầu chia sẻ màn hình",
+        emptySub: "Hãy chọn độ phân giải bên trái và bấm nút Chia sẻ màn hình.",
+        receiverTitle: "Màn Hình Nhận Smart TV (Receiver)",
+        receiverSub: "Nhập mã PIN 4 chữ số hiển thị trên thiết bị Sender để nhận luồng video WebRTC.",
+        enterPinTitle: "Nhập mã PIN 4 số từ Sender",
+        enterPinSub: "Ô nhập sẽ tự động chuyển sang số tiếp theo khi bạn gõ.",
+        connectBtn: "Kết nối WebRTC ngay",
+        clearBtn: "Xóa",
+        disconnectBtn: "Ngắt kết nối",
+        waitingStream: "Đã kết nối P2P! Đang chờ thiết bị Sender bật chia sẻ màn hình...",
+        peerReady: "PeerJS Online · Sẵn sàng kết nối",
+        toastCopied: "Đã sao chép mã PIN!",
+        toastShareStarted: "Đang truyền trực tiếp màn hình qua WebRTC P2P!",
+        toastConnected: "Kết nối thành công với thiết bị phát!"
+      },
+      en: {
+        switchToReceiver: "Switch to Receiver / TV",
+        switchToSender: "Switch to Sender Mode",
+        modalKicker: "Real Cross-Network WebRTC P2P via PeerJS · No Shared Wi-Fi Needed",
+        modalTitle: "Select Your Device Role",
+        modalSub: "Mirror your live screen between any two devices over the Internet using a 4-digit PIN code.",
+        roleSenderDesc: "Generate a 4-digit PIN, select resolution presets, and stream your screen via WebRTC.",
+        roleSenderCta: "Continue as Sender",
+        roleReceiverDesc: "Enter the 4-digit PIN from the Sender device to display the live stream on a Smart TV frame.",
+        roleReceiverCta: "Continue as Receiver / TV",
+        senderTitle: "WebRTC Screen Broadcast Station (Sender)",
+        senderSub: "Choose your resolution preset and start screen sharing to transmit live P2P video to the Receiver.",
+        pinLabel: "Your 4-Digit Pairing PIN",
+        pinDesc: "Enter these 4 digits on the Receiver / Smart TV screen to connect.",
+        copyPin: "Copy PIN",
+        newPin: "New PIN",
+        resLabel: "Resolution & Network Optimization:",
+        resAuto: "Auto (Adaptive: adjusts video constraints to network speed)",
+        res1080: "1080p60 (High Definition · 1920×1080 @ 60fps)",
+        res720: "720p (Balanced HD · 1280×720 @ 30fps)",
+        res480: "480p (Bandwidth Saver · 854×480 @ 24fps)",
+        resHint: "Exact width, height, and frameRate constraints are passed to navigator.mediaDevices.getDisplayMedia().",
+        startShare: "Start Screen Sharing (getDisplayMedia)",
+        stopShare: "Stop Broadcasting",
+        previewTitle: "Outgoing Stream Monitor",
+        emptyPreview: "Screen sharing is not active",
+        emptySub: "Select a resolution preset on the left and click Start Screen Sharing.",
+        receiverTitle: "Smart TV WebRTC Display (Receiver)",
+        receiverSub: "Enter the 4-digit PIN from your Sender device to view the real-time P2P stream.",
+        enterPinTitle: "Enter 4-Digit Sender PIN",
+        enterPinSub: "Focus automatically advances to the next digit box as you type.",
+        connectBtn: "Connect WebRTC Stream",
+        clearBtn: "Clear",
+        disconnectBtn: "Disconnect",
+        waitingStream: "P2P Connected! Waiting for Sender to start screen sharing...",
+        peerReady: "PeerJS Online · Ready for P2P",
+        toastCopied: "PIN copied to clipboard!",
+        toastShareStarted: "Streaming live screen over WebRTC P2P!",
+        toastConnected: "Successfully connected to Sender!"
+      }
+    };
+
+    function showToast(msg) {
+      const container = document.getElementById("toast-container");
+      const el = document.createElement("div");
+      el.className = "pointer-events-auto px-4 py-3 rounded-xl bg-[#111726]/95 border border-slate-700 text-xs font-medium text-slate-100 shadow-xl";
+      el.textContent = msg;
+      container.appendChild(el);
+      setTimeout(() => el.remove(), 3500);
+    }
+
+    // Build exact video constraints for navigator.mediaDevices.getDisplayMedia({ video: { ... } })
+    function getVideoConstraints(preset) {
+      const badge = document.getElementById("txt-active-constraint");
+      if (preset === "1080p60") {
+        badge.textContent = "1920×1080 @ 60fps";
+        return {
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          frameRate: { ideal: 60, max: 60 },
+          cursor: "always"
+        };
+      }
+      if (preset === "720p") {
+        badge.textContent = "1280×720 @ 30fps";
+        return {
+          width: { ideal: 1280, max: 1280 },
+          height: { ideal: 720, max: 720 },
+          frameRate: { ideal: 30, max: 30 },
+          cursor: "always"
+        };
+      }
+      if (preset === "480p") {
+        badge.textContent = "854×480 @ 24fps";
+        return {
+          width: { ideal: 854, max: 854 },
+          height: { ideal: 480, max: 480 },
+          frameRate: { ideal: 24, max: 24 },
+          cursor: "always"
+        };
+      }
+
+      // Adaptive ("auto"): detect network conditions via Network Information API
+      const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const downlink = conn && conn.downlink ? conn.downlink : 10;
+      const eff = conn && conn.effectiveType ? conn.effectiveType : "4g";
+      const saveData = conn && conn.saveData ? conn.saveData : false;
+
+      if (saveData || eff === "2g" || eff === "slow-2g" || downlink < 2) {
+        badge.textContent = "Adaptive 480p@24 (" + downlink + "Mbps)";
+        return {
+          width: { ideal: 854, max: 854 },
+          height: { ideal: 480, max: 480 },
+          frameRate: { ideal: 24, max: 24 },
+          cursor: "always"
+        };
+      } else if (eff === "3g" || downlink < 6) {
+        badge.textContent = "Adaptive 720p@30 (" + downlink + "Mbps)";
+        return {
+          width: { ideal: 1280, max: 1280 },
+          height: { ideal: 720, max: 720 },
+          frameRate: { ideal: 30, max: 30 },
+          cursor: "always"
+        };
+      } else {
+        badge.textContent = "Adaptive 1080p@60 (" + downlink + "Mbps)";
+        return {
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          frameRate: { ideal: 60, max: 60 },
+          cursor: "always"
+        };
+      }
+    }
+
+    function updateUI() {
+      const t = I18N[currentLang];
+      document.getElementById("btn-switch-role").textContent = currentRole === "sender" ? t.switchToReceiver : t.switchToSender;
+      document.getElementById("txt-modal-kicker").textContent = t.modalKicker;
+      document.getElementById("txt-modal-title").textContent = t.modalTitle;
+      document.getElementById("txt-modal-sub").textContent = t.modalSub;
+      document.getElementById("txt-role-sender-desc").textContent = t.roleSenderDesc;
+      document.getElementById("txt-role-sender-cta").textContent = t.roleSenderCta;
+      document.getElementById("txt-role-receiver-desc").textContent = t.roleReceiverDesc;
+      document.getElementById("txt-role-receiver-cta").textContent = t.roleReceiverCta;
+
+      document.getElementById("txt-sender-title").textContent = t.senderTitle;
+      document.getElementById("txt-sender-sub").textContent = t.senderSub;
+      document.getElementById("txt-pin-label").textContent = t.pinLabel;
+      document.getElementById("txt-pin-desc").textContent = t.pinDesc;
+      document.getElementById("btn-copy-pin").textContent = t.copyPin;
+      document.getElementById("btn-new-pin").textContent = t.newPin;
+
+      document.getElementById("txt-res-label").textContent = t.resLabel;
+      document.getElementById("opt-res-auto").textContent = t.resAuto;
+      document.getElementById("opt-res-1080").textContent = t.res1080;
+      document.getElementById("opt-res-720").textContent = t.res720;
+      document.getElementById("opt-res-480").textContent = t.res480;
+      document.getElementById("txt-res-hint").textContent = t.resHint;
+
+      document.getElementById("btn-start-share").textContent = t.startShare;
+      document.getElementById("btn-stop-share").textContent = t.stopShare;
+      document.getElementById("txt-preview-title").textContent = t.previewTitle;
+      document.getElementById("txt-empty-preview").textContent = t.emptyPreview;
+      document.getElementById("txt-empty-sub").textContent = t.emptySub;
+
+      document.getElementById("txt-receiver-title").textContent = t.receiverTitle;
+      document.getElementById("txt-receiver-sub").textContent = t.receiverSub;
+      document.getElementById("txt-enter-pin-title").textContent = t.enterPinTitle;
+      document.getElementById("txt-enter-pin-sub").textContent = t.enterPinSub;
+      document.getElementById("btn-connect-pin").textContent = t.connectBtn;
+      document.getElementById("btn-clear-pin").textContent = t.clearBtn;
+      document.getElementById("btn-tv-disconnect").textContent = t.disconnectBtn;
+      document.getElementById("txt-waiting-stream").textContent = t.waitingStream;
+
+      const activeLangClass = "px-2.5 py-1 text-xs font-semibold rounded-md bg-sky-500 text-slate-950 cursor-pointer";
+      const inactiveLangClass = "px-2.5 py-1 text-xs font-semibold rounded-md text-slate-400 hover:text-white cursor-pointer";
+      document.getElementById("btn-lang-vi").className = currentLang === "vi" ? activeLangClass : inactiveLangClass;
+      document.getElementById("modal-lang-vi").className = currentLang === "vi" ? activeLangClass : inactiveLangClass;
+      document.getElementById("btn-lang-en").className = currentLang === "en" ? activeLangClass : inactiveLangClass;
+      document.getElementById("modal-lang-en").className = currentLang === "en" ? activeLangClass : inactiveLangClass;
+
+      document.getElementById("sender-pin-boxes").innerHTML = senderPin
+        .split("")
+        .map(d => '<div class="h-20 bg-[#090D16] border border-slate-800 rounded-xl flex items-center justify-center font-mono text-4xl font-bold text-sky-400 select-all">' + d + '</div>')
+        .join("");
+      document.getElementById("txt-sender-meta").textContent = "PIN: " + senderPin;
+
+      document.getElementById("view-sender").classList.toggle("hidden", currentRole !== "sender");
+      document.getElementById("view-receiver").classList.toggle("hidden", currentRole !== "receiver");
+
+      getVideoConstraints(selectedQuality);
+    }
+
+    // Initialize Sender PeerJS with 4-digit PIN
+    function initSenderPeer() {
+      if (senderPeer) {
+        try { senderPeer.destroy(); } catch (e) {}
+      }
+      senderPeer = new Peer(PEER_PREFIX + senderPin, { config: ICE_CONFIG });
+
+      senderPeer.on("open", () => {
+        document.getElementById("sender-dot").className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+        document.getElementById("txt-sender-status").textContent = I18N[currentLang].peerReady;
+      });
+
+      senderPeer.on("connection", (conn) => {
+        connectedDataPeers.push(conn);
+        document.getElementById("txt-peer-count").textContent = "TV: " + connectedDataPeers.length;
+        conn.on("open", () => {
+          if (localDisplayStream) {
+            const call = senderPeer.call(conn.peer, localDisplayStream);
+            activeMediaCalls.push(call);
+          }
+        });
+      });
+
+      senderPeer.on("call", (call) => {
+        activeMediaCalls.push(call);
+        if (localDisplayStream) {
+          call.answer(localDisplayStream);
+        } else {
+          call.answer();
+        }
+      });
+
+      senderPeer.on("error", (err) => {
+        if (err && err.type === "unavailable-id") {
+          senderPin = String(Math.floor(1000 + Math.random() * 9000));
+          updateUI();
+          initSenderPeer();
+        }
+      });
+    }
+
+    // Start Screen Sharing with Selected Resolution Constraints
+    document.getElementById("btn-start-share").addEventListener("click", async () => {
+      try {
+        const videoConstraints = getVideoConstraints(selectedQuality);
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: true
+        });
+
+        if (localDisplayStream) {
+          localDisplayStream.getTracks().forEach(t => t.stop());
+        }
+        localDisplayStream = stream;
+
+        const videoEl = document.getElementById("sender-video");
+        videoEl.srcObject = stream;
+        videoEl.classList.remove("hidden");
+        document.getElementById("sender-empty-state").classList.add("hidden");
+        document.getElementById("btn-stop-share").classList.remove("hidden");
+
+        // Push live stream to all connected Receivers via WebRTC
+        connectedDataPeers.forEach(conn => {
+          if (conn && conn.open) {
+            const call = senderPeer.call(conn.peer, stream);
+            activeMediaCalls.push(call);
+          }
+        });
+
+        showToast(I18N[currentLang].toastShareStarted);
+
+        stream.getVideoTracks()[0].onended = () => {
+          stopScreenShare();
+        };
+      } catch (err) {
+        showToast("Không thể truy cập getDisplayMedia (hãy mở file ở tab trình duyệt độc lập).");
+      }
+    });
+
+    function stopScreenShare() {
+      if (localDisplayStream) {
+        localDisplayStream.getTracks().forEach(t => t.stop());
+        localDisplayStream = null;
+      }
+      document.getElementById("sender-video").classList.add("hidden");
+      document.getElementById("sender-empty-state").classList.remove("hidden");
+      document.getElementById("btn-stop-share").classList.add("hidden");
+    }
+
+    document.getElementById("btn-stop-share").addEventListener("click", stopScreenShare);
+
+    // Dynamically update constraints when changing resolution dropdown
+    document.getElementById("select-resolution").addEventListener("change", async (e) => {
+      selectedQuality = e.target.value;
+      const constraints = getVideoConstraints(selectedQuality);
+      if (localDisplayStream) {
+        const track = localDisplayStream.getVideoTracks()[0];
+        if (track && track.applyConstraints) {
+          try { await track.applyConstraints(constraints); } catch (err) {}
+        }
+      }
+    });
+
+    // Receiver 4-Digit Input Auto-Focus
+    const pinInputs = document.querySelectorAll(".pin-input");
+    pinInputs.forEach((input, idx) => {
+      input.addEventListener("input", (e) => {
+        e.target.value = e.target.value.replace(/\D/g, "");
+        if (e.target.value && idx < 3) pinInputs[idx + 1].focus();
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Backspace" && !e.target.value && idx > 0) pinInputs[idx - 1].focus();
+        if (e.key === "Enter") document.getElementById("btn-connect-pin").click();
+      });
+    });
+
+    // Connect Receiver to Sender via PeerJS
+    document.getElementById("btn-connect-pin").addEventListener("click", () => {
+      const enteredPin = Array.from(pinInputs).map(i => i.value).join("");
+      if (enteredPin.length !== 4) return;
+
+      if (receiverPeer) {
+        try { receiverPeer.destroy(); } catch (e) {}
+      }
+
+      receiverPeer = new Peer(undefined, { config: ICE_CONFIG });
+
+      receiverPeer.on("open", () => {
+        const conn = receiverPeer.connect(PEER_PREFIX + enteredPin, { reliable: true });
+        conn.on("open", () => {
+          document.getElementById("receiver-pin-card").classList.add("hidden");
+          document.getElementById("receiver-tv-container").classList.remove("hidden");
+          document.getElementById("tv-connected-pin").textContent = "PIN " + enteredPin;
+          showToast(I18N[currentLang].toastConnected);
+        });
+      });
+
+      receiverPeer.on("call", (call) => {
+        call.answer();
+        call.on("stream", (remoteStream) => {
+          document.getElementById("receiver-pin-card").classList.add("hidden");
+          document.getElementById("receiver-tv-container").classList.remove("hidden");
+          document.getElementById("receiver-waiting-overlay").classList.add("hidden");
+          const rv = document.getElementById("receiver-video");
+          rv.srcObject = remoteStream;
+          rv.play().catch(() => {});
+        });
+      });
+    });
+
+    document.getElementById("btn-clear-pin").addEventListener("click", () => {
+      pinInputs.forEach(i => (i.value = ""));
+      pinInputs[0].focus();
+    });
+
+    document.getElementById("btn-tv-disconnect").addEventListener("click", () => {
+      if (receiverPeer) {
+        try { receiverPeer.destroy(); } catch (e) {}
+      }
+      document.getElementById("receiver-tv-container").classList.add("hidden");
+      document.getElementById("receiver-pin-card").classList.remove("hidden");
+      document.getElementById("receiver-waiting-overlay").classList.remove("hidden");
+    });
+
+    document.getElementById("btn-tv-fullscreen").addEventListener("click", () => {
+      const tv = document.getElementById("receiver-tv-container");
+      if (!document.fullscreenElement) tv.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+    });
+
+    // Language & Role Event Listeners
+    const setLang = (l) => { currentLang = l; updateUI(); };
+    document.getElementById("btn-lang-vi").onclick = () => setLang("vi");
+    document.getElementById("modal-lang-vi").onclick = () => setLang("vi");
+    document.getElementById("btn-lang-en").onclick = () => setLang("en");
+    document.getElementById("modal-lang-en").onclick = () => setLang("en");
+
+    document.getElementById("btn-choose-sender").onclick = () => {
+      currentRole = "sender";
+      document.getElementById("role-modal").classList.add("hidden");
+      updateUI();
+    };
+    document.getElementById("btn-choose-receiver").onclick = () => {
+      currentRole = "receiver";
+      document.getElementById("role-modal").classList.add("hidden");
+      updateUI();
+      setTimeout(() => pinInputs[0].focus(), 100);
+    };
+    document.getElementById("btn-switch-role").onclick = () => {
+      currentRole = currentRole === "sender" ? "receiver" : "sender";
+      updateUI();
+    };
+    document.getElementById("brand-logo").onclick = (e) => {
+      e.preventDefault();
+      document.getElementById("role-modal").classList.remove("hidden");
+    };
+    document.getElementById("footer-role-btn").onclick = () => {
+      document.getElementById("role-modal").classList.remove("hidden");
+    };
+    document.getElementById("btn-copy-pin").onclick = () => {
+      navigator.clipboard.writeText(senderPin);
+      showToast(I18N[currentLang].toastCopied);
+    };
+    document.getElementById("btn-new-pin").onclick = () => {
+      senderPin = String(Math.floor(1000 + Math.random() * 9000));
+      initSenderPeer();
+      updateUI();
+    };
+
+    initSenderPeer();
+    updateUI();
+  </script>
+</body>
+</html>
